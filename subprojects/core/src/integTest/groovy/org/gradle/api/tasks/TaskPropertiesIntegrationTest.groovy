@@ -299,7 +299,7 @@ class TaskPropertiesIntegrationTest extends AbstractIntegrationSpec {
                 private final params = project.objects.newInstance(Params)
 
                 @Nested
-                final Params getParams() { return params }
+                Params getParams() { return params }
 
                 @TaskAction
                 void go() {
