@@ -38,6 +38,9 @@ import org.gradle.internal.logging.TestOutputEventListener
 import org.gradle.internal.logging.events.OutputEventListener
 import org.gradle.internal.logging.services.DefaultLoggingManagerFactory
 import org.gradle.internal.logging.services.LoggingServiceRegistry
+import org.gradle.internal.operations.CurrentBuildOperationRef
+import org.gradle.internal.operations.DefaultBuildOperationRef
+import org.gradle.internal.operations.OperationIdentifier
 import org.gradle.internal.remote.MessagingServer
 import org.gradle.internal.service.DefaultServiceRegistry
 import org.gradle.internal.service.ServiceRegistryBuilder
@@ -61,7 +64,7 @@ abstract class AbstractWorkerProcessIntegrationSpec extends Specification {
         .build()
     final MessagingServer server = services.get(MessagingServer.class)
     @Rule
-    final TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
+    final TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider(getClass())
     @Rule
     final RedirectStdOutAndErr stdout = new RedirectStdOutAndErr()
     final CacheFactory factory = services.get(CacheFactory.class)
@@ -74,7 +77,12 @@ abstract class AbstractWorkerProcessIntegrationSpec extends Specification {
     final OutputEventListener outputEventListener = new TestOutputEventListener()
     DefaultWorkerProcessFactory workerFactory = new DefaultWorkerProcessFactory(loggingManager(LogLevel.DEBUG), server, classPathRegistry, new LongIdGenerator(), tmpDir.file("gradleUserHome"), new TmpDirTemporaryFileProvider(), execHandleFactory, new CachingJvmVersionDetector(new DefaultJvmVersionDetector(execHandleFactory)), outputEventListener, Stub(MemoryManager))
 
+    def setup() {
+        CurrentBuildOperationRef.instance().set(new DefaultBuildOperationRef(new OperationIdentifier(123), null))
+    }
+
     def cleanup() {
+        CurrentBuildOperationRef.instance().clear()
         workerProcessClassPathProvider.close()
     }
 

@@ -39,7 +39,6 @@ import org.gradle.api.internal.file.FileCollectionFactory;
 import org.gradle.api.internal.file.FileLookup;
 import org.gradle.api.internal.file.FileResolver;
 import org.gradle.api.internal.file.TemporaryFileProvider;
-import org.gradle.api.internal.file.collections.DirectoryFileTreeFactory;
 import org.gradle.api.internal.initialization.DefaultScriptClassPathResolver;
 import org.gradle.api.internal.initialization.DefaultScriptHandlerFactory;
 import org.gradle.api.internal.initialization.ScriptClassPathInitializer;
@@ -50,7 +49,8 @@ import org.gradle.api.internal.model.NamedObjectInstantiator;
 import org.gradle.api.internal.plugins.DefaultPluginRegistry;
 import org.gradle.api.internal.plugins.PluginInspector;
 import org.gradle.api.internal.plugins.PluginRegistry;
-import org.gradle.api.internal.project.DefaultProjectAccessListener;
+import org.gradle.api.internal.project.ConfigurationOnDemandProjectAccessListener;
+import org.gradle.api.internal.project.DefaultProjectAccessNotifier;
 import org.gradle.api.internal.project.DefaultProjectRegistry;
 import org.gradle.api.internal.project.DefaultProjectTaskLister;
 import org.gradle.api.internal.project.IProjectFactory;
@@ -133,6 +133,7 @@ import org.gradle.initialization.InstantiatingBuildLoader;
 import org.gradle.initialization.ModelConfigurationListener;
 import org.gradle.initialization.NotifyingBuildLoader;
 import org.gradle.initialization.ProjectAccessListener;
+import org.gradle.initialization.ProjectAccessNotifier;
 import org.gradle.initialization.ProjectDescriptorRegistry;
 import org.gradle.initialization.ProjectPropertySettingBuildLoader;
 import org.gradle.initialization.RootBuildCacheControllerSettingsProcessor;
@@ -163,8 +164,6 @@ import org.gradle.internal.concurrent.ExecutorFactory;
 import org.gradle.internal.event.ListenerManager;
 import org.gradle.internal.file.Deleter;
 import org.gradle.internal.hash.ClassLoaderHierarchyHasher;
-import org.gradle.internal.hash.FileHasher;
-import org.gradle.internal.hash.StreamHasher;
 import org.gradle.internal.instantiation.InstantiatorFactory;
 import org.gradle.internal.invocation.DefaultBuildInvocationDetails;
 import org.gradle.internal.isolation.IsolatableFactory;
@@ -179,7 +178,6 @@ import org.gradle.internal.reflect.DirectInstantiator;
 import org.gradle.internal.reflect.Instantiator;
 import org.gradle.internal.resource.DefaultTextFileResourceLoader;
 import org.gradle.internal.resource.TextFileResourceLoader;
-import org.gradle.internal.resource.TextUriResourceLoader;
 import org.gradle.internal.service.CachingServiceLocator;
 import org.gradle.internal.service.DefaultServiceRegistry;
 import org.gradle.internal.service.ServiceRegistry;
@@ -386,26 +384,12 @@ public class BuildScopeServices extends DefaultServiceRegistry {
 
     private DefaultScriptPluginFactory defaultScriptPluginFactory() {
         return new DefaultScriptPluginFactory(
+            this,
             get(ScriptCompilerFactory.class),
             getFactory(LoggingManagerInternal.class),
-            get(Instantiator.class),
-            get(ScriptHandlerFactory.class),
-            get(PluginRequestApplicator.class),
-            get(FileSystem.class),
-            get(FileLookup.class),
-            get(DirectoryFileTreeFactory.class),
             get(DocumentationRegistry.class),
-            get(ModelRuleSourceDetector.class),
-            get(ProviderFactory.class),
-            get(TextFileResourceLoader.class),
-            get(TextUriResourceLoader.Factory.class),
-            get(ApiTextResourceAdapter.Factory.class),
-            get(StreamHasher.class),
-            get(FileHasher.class),
-            get(ExecFactory.class),
-            get(FileCollectionFactory.class),
             get(AutoAppliedPluginHandler.class),
-            get(Deleter.class));
+            get(PluginRequestApplicator.class));
     }
 
     protected SettingsLoaderFactory createSettingsLoaderFactory(
@@ -520,7 +504,11 @@ public class BuildScopeServices extends DefaultServiceRegistry {
     }
 
     protected ProjectAccessListener createProjectAccessListener() {
-        return new DefaultProjectAccessListener();
+        return new ConfigurationOnDemandProjectAccessListener();
+    }
+
+    protected ProjectAccessNotifier createProjectAccessNotifier(List<ProjectAccessListener> listeners) {
+        return new DefaultProjectAccessNotifier(listeners);
     }
 
     protected PluginRegistry createPluginRegistry(ClassLoaderScopeRegistry scopeRegistry, PluginInspector pluginInspector) {

@@ -43,6 +43,7 @@ abstract class AbstractSmokeTest extends Specification {
 
     protected static final AndroidGradlePluginVersions AGP_VERSIONS = new AndroidGradlePluginVersions()
     protected static final String AGP_3_ITERATION_MATCHER = ".*agp=3\\..*"
+    protected static final String AGP_4_0_ITERATION_MATCHER = ".*agp=4\\.0\\..*"
 
     static class TestedVersions {
         /**
@@ -72,7 +73,7 @@ abstract class AbstractSmokeTest extends Specification {
         static asciidoctor = Versions.of("2.3.0", "3.0.0", "3.1.0")
 
         // https://plugins.gradle.org/plugin/com.github.spotbugs
-        static spotbugs = "3.0.0"
+        static spotbugs = "4.0.1"
 
         // https://plugins.gradle.org/plugin/com.bmuschko.docker-java-application
         static docker = "6.1.4"

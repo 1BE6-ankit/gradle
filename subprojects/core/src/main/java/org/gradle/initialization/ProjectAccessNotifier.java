@@ -1,5 +1,5 @@
 /*
- * Copyright 2010 the original author or authors.
+ * Copyright 2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,13 +14,10 @@
  * limitations under the License.
  */
 
-package org.gradle.process.internal.worker.child;
+package org.gradle.initialization;
 
-import org.gradle.internal.remote.ObjectConnection;
-import org.gradle.internal.service.ServiceRegistry;
 
-public interface WorkerContext {
-    ClassLoader getApplicationClassLoader();
-    ObjectConnection getServerConnection();
-    ServiceRegistry getServiceRegistry();
+public interface ProjectAccessNotifier {
+
+    ProjectAccessListener getListener();
 }

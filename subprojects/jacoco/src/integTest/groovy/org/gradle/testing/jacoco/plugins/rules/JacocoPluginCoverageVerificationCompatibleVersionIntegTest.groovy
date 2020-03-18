@@ -21,8 +21,9 @@ import org.gradle.integtests.fixtures.ToBeFixedForInstantExecution
 import org.gradle.testing.jacoco.plugins.JacocoMultiVersionIntegrationTest
 import org.gradle.testing.jacoco.plugins.fixtures.JacocoCoverage
 
+// Note: don't make the class name too long, see https://github.com/gradle/gradle-private/issues/3000
 @TargetCoverage({ JacocoCoverage.supportedVersionsByJdk })
-class JacocoPluginCoverageVerificationCompatibleVersionIntegrationTest extends JacocoMultiVersionIntegrationTest {
+class JacocoPluginCoverageVerificationCompatibleVersionIntegTest extends JacocoMultiVersionIntegrationTest {
 
     protected final static String[] TEST_AND_JACOCO_COVERAGE_VERIFICATION_TASK_PATHS = [':test', ':jacocoTestCoverageVerification'] as String[]
 

@@ -16,16 +16,74 @@
 
 package org.gradle.instantexecution
 
-import org.gradle.internal.hash.HashUtil
-import org.gradle.internal.logging.ConsoleRenderer
-import org.gradle.test.fixtures.file.TestFile
-import org.gradle.util.GradleVersion
 import spock.lang.Unroll
 
-import javax.script.ScriptEngine
-import javax.script.ScriptEngineManager
-
 class InstantExecutionReportIntegrationTest extends AbstractInstantExecutionIntegrationTest {
+
+    def "reports project access during execution"() {
+
+        def instantExecution = newInstantExecutionFixture()
+
+        given:
+        settingsFile << "rootProject.name = 'root'"
+        buildFile << """
+            abstract class MyTask extends DefaultTask {
+                @TaskAction
+                def action() {
+                    println("project:${'$'}{project.name}")
+                }
+            }
+
+            tasks.register("a", MyTask)
+            tasks.register("b", MyTask)
+        """
+
+        and:
+        def expectedProblems = [
+            "- task `:a` of type `MyTask`: invocation of 'Task.project' at execution time is unsupported.",
+            "- task `:b` of type `MyTask`: invocation of 'Task.project' at execution time is unsupported."
+        ]
+
+        when:
+        instantRun "a", "b"
+
+        then:
+        output.count("project:root") == 2
+        instantExecution.assertStateStored()
+
+        and:
+        expectInstantExecutionProblems(*expectedProblems)
+        numberOfProblemsWithStacktraceIn(
+            resolveInstantExecutionReportDirectory().file("instant-execution-report-data.js")
+        ) == 2
+
+        when:
+        instantRun "a", "b"
+
+        then:
+        output.count("project:root") == 2
+        instantExecution.assertStateLoaded()
+
+        and:
+        expectInstantExecutionProblems(*expectedProblems)
+        numberOfProblemsWithStacktraceIn(
+            resolveInstantExecutionReportDirectory().file("instant-execution-report-data.js")
+        ) == 2
+
+
+        when:
+        instantRun "a", "b"
+
+        then:
+        output.count("project:root") == 2
+        instantExecution.assertStateLoaded()
+
+        and:
+        expectInstantExecutionProblems(*expectedProblems)
+        numberOfProblemsWithStacktraceIn(
+            resolveInstantExecutionReportDirectory().file("instant-execution-report-data.js")
+        ) == 2
+    }
 
     def "summarizes unsupported properties"() {
         given:
@@ -61,21 +119,15 @@ class InstantExecutionReportIntegrationTest extends AbstractInstantExecutionInte
         """
 
         when:
-        instantRun "c"
+        instantFails "c"
 
         then:
-        def reportDir = stateDirForTasks("c")
-        def reportFile = reportDir.file("instant-execution-report.html")
-        reportFile.isFile()
-        def jsFile = reportDir.file("instant-execution-report-data.js")
-        jsFile.isFile()
-        outputContains """
-            6 instant execution problems were found, 3 of which seem unique:
-              - field 'gradle' from type 'SomeBean': cannot serialize object of type 'org.gradle.invocation.DefaultGradle', a subtype of 'org.gradle.api.invocation.Gradle', as these are not supported with instant execution.
-              - field 'gradle' from type 'NestedBean': cannot serialize object of type 'org.gradle.invocation.DefaultGradle', a subtype of 'org.gradle.api.invocation.Gradle', as these are not supported with instant execution.
-              - field 'project' from type 'NestedBean': cannot serialize object of type 'org.gradle.api.internal.project.DefaultProject', a subtype of 'org.gradle.api.Project', as these are not supported with instant execution.
-            See the complete report at ${clickableUrlFor(reportFile)}
-        """.stripIndent()
+        expectInstantExecutionProblems(
+            6,
+            "- field 'gradle' from type 'SomeBean': cannot serialize object of type 'org.gradle.invocation.DefaultGradle', a subtype of 'org.gradle.api.invocation.Gradle', as these are not supported with instant execution.",
+            "- field 'gradle' from type 'NestedBean': cannot serialize object of type 'org.gradle.invocation.DefaultGradle', a subtype of 'org.gradle.api.invocation.Gradle', as these are not supported with instant execution.",
+            "- field 'project' from type 'NestedBean': cannot serialize object of type 'org.gradle.api.internal.project.DefaultProject', a subtype of 'org.gradle.api.Project', as these are not supported with instant execution."
+        )
     }
 
     @Unroll
@@ -111,19 +163,22 @@ class InstantExecutionReportIntegrationTest extends AbstractInstantExecutionInte
         instantFails "foo", "-Dorg.gradle.unsafe.instant-execution.max-problems=$maxProblems"
 
         then:
-        def reportDir = stateDirForTasks("foo")
-        def jsFile = reportDir.file("instant-execution-report-data.js")
-        numberOfProblemsIn(jsFile) == expectedNumberOfProblems
-        def problemOrProblems = expectedNumberOfProblems == 1 ? "problem was" : "problems were"
-        outputContains "$expectedNumberOfProblems instant execution $problemOrProblems found"
         failureHasCause "Maximum number of instant execution problems has been reached"
+
+        and:
+        expectInstantExecutionProblems(
+            expectedNumberOfProblems,
+            *(1..expectedNumberOfProblems).collect {
+                "- field 'p$it' from type 'Bean': cannot serialize object of type 'org.gradle.api.internal.project.DefaultProject', a subtype of 'org.gradle.api.Project', as these are not supported with instant execution."
+            }
+        )
 
         where:
         maxProblems << [0, 1, 2]
         expectedNumberOfProblems = Math.max(1, maxProblems)
     }
 
-    def "can request to fail on problems"() {
+    def "can request to not fail on problems"() {
         given:
         buildFile << """
             class Bean { Project p1 }
@@ -138,33 +193,11 @@ class InstantExecutionReportIntegrationTest extends AbstractInstantExecutionInte
         """
 
         when:
-        instantFails "foo", "-Dorg.gradle.unsafe.instant-execution.fail-on-problems=true"
+        instantRun "foo", "-Dorg.gradle.unsafe.instant-execution.fail-on-problems=false"
 
         then:
-        def reportDir = stateDirForTasks("foo")
-        def jsFile = reportDir.file("instant-execution-report-data.js")
-        numberOfProblemsIn(jsFile) == 1
-        outputContains "1 instant execution problem was found"
-        failureDescriptionStartsWith "Problems found while caching instant execution state"
-    }
-
-    private static int numberOfProblemsIn(File jsFile) {
-        newJavaScriptEngine().with {
-            eval(jsFile.text)
-            eval("instantExecutionProblems().length") as int
-        }
-    }
-
-    private static ScriptEngine newJavaScriptEngine() {
-        new ScriptEngineManager().getEngineByName("JavaScript")
-    }
-
-    private TestFile stateDirForTasks(String... requestedTaskNames) {
-        def baseName = HashUtil.createCompactMD5(requestedTaskNames.join("/"))
-        file(".instant-execution-state/${GradleVersion.current().version}/$baseName")
-    }
-
-    private static String clickableUrlFor(File file) {
-        new ConsoleRenderer().asClickableFileUrl(file)
+        expectInstantExecutionProblems(
+            "- field 'p1' from type 'Bean': cannot serialize object of type 'org.gradle.api.internal.project.DefaultProject', a subtype of 'org.gradle.api.Project', as these are not supported with instant execution."
+        )
     }
 }

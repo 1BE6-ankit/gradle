@@ -1,27 +1,19 @@
 {
     "acceptedApiChanges": [
         {
-            "type": "org.gradle.plugins.signing.SignOperation",
-            "member": "Method org.gradle.plugins.signing.SignOperation.toFileCollection(java.util.List)",
-            "acceptation": "Method is intended to be used only by this class",
+            "type": "org.gradle.api.tasks.AbstractCopyTask",
+            "member": "Method org.gradle.api.tasks.AbstractCopyTask.getFileCollectionFactory()",
+            "acceptation": "Removed an injection method",
             "changes": [
-                "Abstract method has been added to this class"
+                "Method has been removed"
             ]
         },
         {
-            "type": "org.gradle.kotlin.dsl.DependencyHandlerScope",
-            "member": "Method org.gradle.kotlin.dsl.DependencyHandlerScope.constraints(org.gradle.api.Action)",
-            "acceptation": "method is actually from superclass but hidden from consumers",
+            "type": "org.gradle.api.tasks.testing.Test",
+            "member": "Method org.gradle.api.tasks.testing.Test.getFileResolver()",
+            "acceptation": "Removed an injection method",
             "changes": [
-                "METHOD_ADDED_TO_PUBLIC_CLASS"
-            ]
-        },
-        {
-            "type": "org.gradle.kotlin.dsl.DependencyHandlerScope",
-            "member": "Method org.gradle.kotlin.dsl.DependencyHandlerScope.constraints(kotlin.jvm.functions.Function1)",
-            "acceptation": "bridge method",
-            "changes": [
-                "METHOD_ADDED_TO_PUBLIC_CLASS"
+                "Method has been removed"
             ]
         }
     ]

@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 the original author or authors.
+ * Copyright 2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,16 @@
  * limitations under the License.
  */
 
-package org.gradle.process.internal;
+package org.gradle.process.internal.worker;
 
-public interface TestProtocol {
-    Object convert(String param1, long param2);
+import java.io.Serializable;
 
-    void doSomething();
+/**
+ * Handles requests to do work in worker process. Is instantiated in the build process and serialized to the worker process.
+ */
+public interface RequestHandler<IN, OUT> extends Serializable {
+    /**
+     * Executes the given request and returns the response. Called in the worker process only.
+     */
+    OUT run(IN request);
 }

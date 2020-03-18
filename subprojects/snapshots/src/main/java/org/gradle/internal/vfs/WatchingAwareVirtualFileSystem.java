@@ -14,17 +14,24 @@
  * limitations under the License.
  */
 
-package org.gradle.workers.internal;
+package org.gradle.internal.vfs;
 
-import org.gradle.internal.serialize.DefaultSerializerRegistry;
-import org.gradle.internal.serialize.SerializerRegistry;
+import java.io.File;
+import java.util.function.Supplier;
 
-public class WorkerDaemonMessageSerializer {
-    public static SerializerRegistry create() {
-        DefaultSerializerRegistry registry = new DefaultSerializerRegistry();
+/**
+ * A {@link VirtualFileSystem} that can be instructed to try to maintain its
+ * contents by watching the file system.
+ */
+public interface WatchingAwareVirtualFileSystem extends VirtualFileSystem {
 
-        registry.register(TransportableActionExecutionSpec.class, new TransportableActionExecutionSpecSerializer());
+    /**
+     * Called when the build is started.
+     */
+    void afterStart(boolean watchingEnabled);
 
-        return registry;
-    }
+    /**
+     * Called when the build is completed.
+     */
+    void beforeComplete(boolean watchingEnabled, Supplier<File> rootProjectDir);
 }

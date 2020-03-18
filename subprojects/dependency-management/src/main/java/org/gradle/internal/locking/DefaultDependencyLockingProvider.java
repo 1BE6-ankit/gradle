@@ -27,6 +27,7 @@ import org.gradle.api.artifacts.dsl.LockMode;
 import org.gradle.api.artifacts.result.ComponentSelectionDescriptor;
 import org.gradle.api.internal.DocumentationRegistry;
 import org.gradle.api.internal.DomainObjectContext;
+import org.gradle.api.internal.FeaturePreviews;
 import org.gradle.api.internal.artifacts.DefaultModuleIdentifier;
 import org.gradle.api.internal.artifacts.DependencySubstitutionInternal;
 import org.gradle.api.internal.artifacts.dependencies.DefaultMutableVersionConstraint;
@@ -42,7 +43,10 @@ import org.gradle.internal.component.external.model.DefaultModuleComponentSelect
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+
+import static org.gradle.api.internal.FeaturePreviews.Feature.ONE_LOCKFILE_PER_PROJECT;
 
 public class DefaultDependencyLockingProvider implements DependencyLockingProvider {
 
@@ -62,11 +66,14 @@ public class DefaultDependencyLockingProvider implements DependencyLockingProvid
     private final boolean partialUpdate;
     private final LockEntryFilter lockEntryFilter;
     private final DomainObjectContext context;
-    private DependencySubstitutionRules dependencySubstitutionRules;
+    private final DependencySubstitutionRules dependencySubstitutionRules;
+    private final boolean uniqueLockStateEnabled;
+    private boolean uniqueLockStateLoaded;
+    private Map<String, List<String>> allLockState;
     private LockMode lockMode;
     private boolean used = false;
 
-    public DefaultDependencyLockingProvider(FileResolver fileResolver, StartParameter startParameter, DomainObjectContext context, DependencySubstitutionRules dependencySubstitutionRules) {
+    public DefaultDependencyLockingProvider(FileResolver fileResolver, StartParameter startParameter, DomainObjectContext context, DependencySubstitutionRules dependencySubstitutionRules, FeaturePreviews featurePreviews) {
         this.context = context;
         this.dependencySubstitutionRules = dependencySubstitutionRules;
         this.lockFileReaderWriter = new LockFileReaderWriter(fileResolver, context);
@@ -78,13 +85,17 @@ public class DefaultDependencyLockingProvider implements DependencyLockingProvid
         partialUpdate = !lockedDependenciesToUpdate.isEmpty();
         lockEntryFilter = LockEntryFilterFactory.forParameter(lockedDependenciesToUpdate);
         lockMode = LockMode.DEFAULT;
+        uniqueLockStateEnabled = featurePreviews.isFeatureEnabled(ONE_LOCKFILE_PER_PROJECT);
     }
 
     @Override
     public DependencyLockingState loadLockState(String configurationName) {
         recordUsage();
+        if (uniqueLockStateEnabled) {
+            loadLockState();
+        }
         if (!writeLocks || partialUpdate) {
-            List<String> lockedModules = lockFileReaderWriter.readLockFile(configurationName);
+            List<String> lockedModules = findLockedModules(configurationName, uniqueLockStateEnabled);
             if (lockedModules == null && lockMode == LockMode.STRICT) {
                 throw new MissingLockStateException(context.identityPath(configurationName).toString());
             }
@@ -106,6 +117,28 @@ public class DefaultDependencyLockingProvider implements DependencyLockingProvid
             }
         }
         return DefaultDependencyLockingState.EMPTY_LOCK_CONSTRAINT;
+    }
+
+    private List<String> findLockedModules(String configurationName, boolean uniqueLockStateEnabled) {
+        List<String> result = null;
+        if (uniqueLockStateEnabled) {
+            result = allLockState.get(configurationName);
+        }
+        if (result == null) {
+            result = lockFileReaderWriter.readLockFile(configurationName);
+        }
+        return result;
+    }
+
+    private synchronized void loadLockState() {
+        if (!uniqueLockStateLoaded) {
+            try {
+                allLockState = lockFileReaderWriter.readUniqueLockFile();
+                uniqueLockStateLoaded = true;
+            } catch (IllegalStateException e) {
+                throw new InvalidLockFileException("project '" + context.getProjectPath().getPath() + "'", e);
+            }
+        }
     }
 
     private void recordUsage() {
@@ -130,7 +163,7 @@ public class DefaultDependencyLockingProvider implements DependencyLockingProvid
         try {
             lockedIdentifier = converter.convertFromLockNotation(module);
         } catch (IllegalArgumentException e) {
-            throw new InvalidLockFileException(context.identityPath(configurationName).getPath(), e);
+            throw new InvalidLockFileException("configuration '" + context.identityPath(configurationName).getPath() + "'", e);
         }
         return lockedIdentifier;
     }
@@ -139,15 +172,31 @@ public class DefaultDependencyLockingProvider implements DependencyLockingProvid
     public void persistResolvedDependencies(String configurationName, Set<ModuleComponentIdentifier> resolvedModules, Set<ModuleComponentIdentifier> changingResolvedModules) {
         if (writeLocks) {
             List<String> modulesOrdered = getModulesOrdered(resolvedModules);
-            lockFileReaderWriter.writeLockFile(configurationName, modulesOrdered);
             if (!changingResolvedModules.isEmpty()) {
                 LOGGER.warn("Dependency lock state for configuration '{}' contains changing modules: {}. This means that dependencies content may still change over time. See {} for details.",
                     context.identityPath(configurationName), getModulesOrdered(changingResolvedModules), DOC_REG.getDocumentationFor("dependency_locking"));
             }
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug("Persisted dependency lock state for configuration '{}', state is: {}", context.identityPath(configurationName), modulesOrdered);
+            if (uniqueLockStateEnabled) {
+                allLockState.put(configurationName, modulesOrdered);
             } else {
-                LOGGER.lifecycle("Persisted dependency lock state for configuration '{}'", context.identityPath(configurationName));
+                lockFileReaderWriter.writeLockFile(configurationName, modulesOrdered);
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug("Persisted dependency lock state for configuration '{}', state is: {}", context.identityPath(configurationName), modulesOrdered);
+                } else {
+                    LOGGER.lifecycle("Persisted dependency lock state for configuration '{}'", context.identityPath(configurationName));
+                }
+            }
+        }
+    }
+
+    @Override
+    public void buildFinished() {
+        if (uniqueLockStateEnabled && uniqueLockStateLoaded && lockFileReaderWriter.canWrite()) {
+            lockFileReaderWriter.writeUniqueLockfile(allLockState);
+            if (context.isScript()) {
+                LOGGER.lifecycle("Persisted dependency lock state for buildscript of project '{}'", context.getProjectPath());
+            } else {
+                LOGGER.lifecycle("Persisted dependency lock state for project '{}'", context.getProjectPath());
             }
         }
     }

@@ -30,4 +30,6 @@ public interface DependencyLockingProvider {
     LockMode getLockMode();
 
     void setLockMode(LockMode mode);
+
+    void buildFinished();
 }

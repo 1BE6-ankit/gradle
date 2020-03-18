@@ -54,4 +54,9 @@ public class NoOpDependencyLockingProvider implements DependencyLockingProvider 
     public void setLockMode(LockMode mode) {
         throw new IllegalStateException("Should not be invoked on the no-op instance");
     }
+
+    @Override
+    public void buildFinished() {
+        // No-op
+    }
 }

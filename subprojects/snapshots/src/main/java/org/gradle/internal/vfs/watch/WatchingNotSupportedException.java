@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 the original author or authors.
+ * Copyright 2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,8 +14,10 @@
  * limitations under the License.
  */
 
-package org.gradle.plugins.javascript.jshint.internal;
+package org.gradle.internal.vfs.watch;
 
-public interface JsHintProtocol {
-    JsHintResult process(JsHintSpec spec);
+public class WatchingNotSupportedException extends RuntimeException {
+    public WatchingNotSupportedException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }
