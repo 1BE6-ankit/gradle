@@ -913,6 +913,17 @@ abstract class AbstractClassGenerator implements ClassGenerator {
             if (conventionAware) {
                 visitor.mixInConventionAware();
             }
+            for (PropertyMetadata property : conventionProperties) {
+                boolean managedProperty = isManagedProperty(property);
+                for (MethodMetadata getter : property.getOverridableGetters()) {
+                    boolean attachOwner = managedProperty && isManagedType(getter);
+                    boolean applyRole = attachOwner && isRoleType(getter);
+                    if (applyRole) {
+                        visitor.instantiatesNestedObjects();
+                        return;
+                    }
+                }
+            }
         }
 
         @Override
@@ -996,7 +1007,8 @@ abstract class AbstractClassGenerator implements ClassGenerator {
                 visitor.instantiatesNestedObjects();
             }
             for (PropertyMetadata property : eagerAttachProperties) {
-                visitor.attachDuringConstruction(property, isRoleType(property.getMainGetter()));
+                boolean applyRole = isRoleType(property.getMainGetter());
+                visitor.attachDuringConstruction(property, applyRole);
             }
         }
 

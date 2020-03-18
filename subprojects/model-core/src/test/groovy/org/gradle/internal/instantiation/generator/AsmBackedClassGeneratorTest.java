@@ -1913,6 +1913,18 @@ public class AsmBackedClassGeneratorTest {
         public final String name = toString();
     }
 
+    public static class FinalReadOnlyNonManagedPropertyBean {
+        private final Property<String> prop;
+
+        public FinalReadOnlyNonManagedPropertyBean(ObjectFactory objectFactory) {
+            this.prop = objectFactory.property(String.class);
+        }
+
+        public final Property<String> getProp() {
+            return prop;
+        }
+    }
+
     public interface InterfaceUsesToStringBean {
         @Nested
         UsesToStringInConstructor getBean();
