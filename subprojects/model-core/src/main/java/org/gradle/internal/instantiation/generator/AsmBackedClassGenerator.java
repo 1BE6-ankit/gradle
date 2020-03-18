@@ -43,6 +43,7 @@ import org.gradle.internal.extensibility.ConventionAwareHelper;
 import org.gradle.internal.instantiation.ClassGenerationException;
 import org.gradle.internal.instantiation.InjectAnnotationHandler;
 import org.gradle.internal.instantiation.InstanceGenerator;
+import org.gradle.internal.instantiation.PropertyRoleAnnotationHandler;
 import org.gradle.internal.logging.text.TreeFormatter;
 import org.gradle.internal.metaobject.AbstractDynamicObject;
 import org.gradle.internal.metaobject.BeanDynamicObject;
@@ -115,9 +116,11 @@ import static org.objectweb.asm.Opcodes.INVOKESTATIC;
 import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
 import static org.objectweb.asm.Opcodes.IRETURN;
 import static org.objectweb.asm.Opcodes.NEW;
+import static org.objectweb.asm.Opcodes.POP;
 import static org.objectweb.asm.Opcodes.PUTFIELD;
 import static org.objectweb.asm.Opcodes.PUTSTATIC;
 import static org.objectweb.asm.Opcodes.RETURN;
+import static org.objectweb.asm.Opcodes.SWAP;
 import static org.objectweb.asm.Opcodes.V1_8;
 import static org.objectweb.asm.Type.VOID_TYPE;
 
@@ -155,11 +158,16 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
     @SuppressWarnings("unused")
     public static ManagedObjectFactory getFactoryForNext() {
         ObjectCreationDetails details = SERVICES_FOR_NEXT_OBJECT.get();
-        return new ManagedObjectFactory(details.services, details.instantiator);
+        return new ManagedObjectFactory(details.services, details.instantiator, details.roleHandler);
     }
 
-    private AsmBackedClassGenerator(boolean decorate, String suffix, Collection<? extends InjectAnnotationHandler> allKnownAnnotations, Collection<Class<? extends Annotation>> enabledAnnotations, CrossBuildInMemoryCache<Class<?>, GeneratedClassImpl> generatedClasses, int factoryId) {
-        super(allKnownAnnotations, enabledAnnotations, generatedClasses);
+    private AsmBackedClassGenerator(boolean decorate, String suffix,
+                                    Collection<? extends InjectAnnotationHandler> allKnownAnnotations,
+                                    Collection<Class<? extends Annotation>> enabledInjectAnnotations,
+                                    PropertyRoleAnnotationHandler roleHandler,
+                                    CrossBuildInMemoryCache<Class<?>, GeneratedClassImpl> generatedClasses,
+                                    int factoryId) {
+        super(allKnownAnnotations, enabledInjectAnnotations, roleHandler, generatedClasses);
         this.decorate = decorate;
         this.suffix = suffix;
         this.factoryId = factoryId;
@@ -168,10 +176,14 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
     /**
      * Returns a generator that applies DSL mix-in, extensibility and service injection for generated classes.
      */
-    static ClassGenerator decorateAndInject(Collection<? extends InjectAnnotationHandler> allKnownAnnotations, Collection<Class<? extends Annotation>> enabledAnnotations, CrossBuildInMemoryCacheFactory cacheFactory, int factoryId) {
+    static ClassGenerator decorateAndInject(Collection<? extends InjectAnnotationHandler> allKnownAnnotations,
+                                            PropertyRoleAnnotationHandler roleHandler,
+                                            Collection<Class<? extends Annotation>> enabledInjectAnnotations,
+                                            CrossBuildInMemoryCacheFactory cacheFactory,
+                                            int factoryId) {
         String suffix;
         CrossBuildInMemoryCache<Class<?>, GeneratedClassImpl> generatedClasses;
-        if (enabledAnnotations.isEmpty()) {
+        if (enabledInjectAnnotations.isEmpty()) {
             // TODO wolfs: We use `_Decorated` here, since IDEA import currently relies on this
             // See https://github.com/gradle/gradle/issues/8244
             suffix = "_Decorated";
@@ -189,22 +201,26 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
             generatedClasses = cacheFactory.newClassMap();
         }
 
-        return new AsmBackedClassGenerator(true, suffix, allKnownAnnotations, enabledAnnotations, generatedClasses, factoryId);
+        return new AsmBackedClassGenerator(true, suffix, allKnownAnnotations, enabledInjectAnnotations, roleHandler, generatedClasses, factoryId);
     }
 
     /**
      * Returns a generator that applies service injection only for generated classes, and will generate classes only if required.
      */
-    static ClassGenerator injectOnly(Collection<? extends InjectAnnotationHandler> allKnownAnnotations, Collection<Class<? extends Annotation>> enabledAnnotations, CrossBuildInMemoryCacheFactory cacheFactory, int factoryId) {
+    static ClassGenerator injectOnly(Collection<? extends InjectAnnotationHandler> allKnownAnnotations,
+                                     PropertyRoleAnnotationHandler roleHandler,
+                                     Collection<Class<? extends Annotation>> enabledInjectAnnotations,
+                                     CrossBuildInMemoryCacheFactory cacheFactory,
+                                     int factoryId) {
         // TODO - the suffix should be a deterministic function of the known and enabled annotations
         // For now, just assign using a counter
         String suffix = ClassGeneratorSuffixRegistry.assign("$Inject");
-        return new AsmBackedClassGenerator(false, suffix, allKnownAnnotations, enabledAnnotations, cacheFactory.newClassMap(), factoryId);
+        return new AsmBackedClassGenerator(false, suffix, allKnownAnnotations, enabledInjectAnnotations, roleHandler, cacheFactory.newClassMap(), factoryId);
     }
 
     @Override
     protected InstantiationStrategy createUsingConstructor(Constructor<?> constructor) {
-        return new InvokeConstructorStrategy(constructor);
+        return new InvokeConstructorStrategy(constructor, getRoleHandler());
     }
 
     @Override
@@ -219,7 +235,7 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
         Method method = CollectionUtils.findFirst(generatedType.getDeclaredMethods(), m -> m.getName().equals(ClassBuilderImpl.INIT_METHOD));
         method.setAccessible(true);
 
-        return new InvokeSerializationConstructorAndInitializeFieldsStrategy(constructor, method);
+        return new InvokeSerializationConstructorAndInitializeFieldsStrategy(constructor, method, getRoleHandler());
     }
 
     @Override
@@ -414,7 +430,7 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
         private static final String RETURN_VOID_FROM_META_CLASS = Type.getMethodDescriptor(Type.VOID_TYPE, META_CLASS_TYPE);
         private static final String GET_DECLARED_METHOD_DESCRIPTOR = Type.getMethodDescriptor(METHOD_TYPE, STRING_TYPE, CLASS_ARRAY_TYPE);
         private static final String RETURN_OBJECT_FROM_TYPE = Type.getMethodDescriptor(OBJECT_TYPE, JAVA_LANG_REFLECT_TYPE);
-        private static final String RETURN_OBJECT_FROM_MODEL_OBJECT_STRING_OBJECT = Type.getMethodDescriptor(OBJECT_TYPE, MODEL_OBJECT_TYPE, STRING_TYPE, OBJECT_TYPE);
+        private static final String RETURN_OBJECT_FROM_OBJECT_MODEL_OBJECT_STRING = Type.getMethodDescriptor(OBJECT_TYPE, OBJECT_TYPE, MODEL_OBJECT_TYPE, STRING_TYPE);
         private static final String RETURN_OBJECT_FROM_MODEL_OBJECT_STRING_CLASS = Type.getMethodDescriptor(OBJECT_TYPE, MODEL_OBJECT_TYPE, STRING_TYPE, CLASS_TYPE);
         private static final String RETURN_OBJECT_FROM_MODEL_OBJECT_STRING_CLASS_CLASS = Type.getMethodDescriptor(OBJECT_TYPE, MODEL_OBJECT_TYPE, STRING_TYPE, CLASS_TYPE, CLASS_TYPE);
         private static final String RETURN_OBJECT_FROM_MODEL_OBJECT_STRING_CLASS_CLASS_CLASS = Type.getMethodDescriptor(OBJECT_TYPE, MODEL_OBJECT_TYPE, STRING_TYPE, CLASS_TYPE, CLASS_TYPE, CLASS_TYPE);
@@ -609,12 +625,12 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
                 methodVisitor.visitFieldInsn(PUTFIELD, generatedType.getInternalName(), FACTORY_FIELD, MANAGED_OBJECT_FACTORY_TYPE.getDescriptor());
             }
             for (PropertyMetadata property : propertiesToAttach) {
-                // ManagedObjectFactory.attachOwner(this, <property-name>, get<prop>())
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitLdcInsn(property.getName());
+                // ManagedObjectFactory.attachOwner(get<prop>(), this, <property-name>))
                 methodVisitor.visitVarInsn(ALOAD, 0);
                 methodVisitor.visitMethodInsn(INVOKEVIRTUAL, generatedType.getInternalName(), property.getMainGetter().getName(), Type.getMethodDescriptor(Type.getType(property.getMainGetter().getReturnType())), false);
-                methodVisitor.visitMethodInsn(INVOKESTATIC, MANAGED_OBJECT_FACTORY_TYPE.getInternalName(), "attachOwner", RETURN_OBJECT_FROM_MODEL_OBJECT_STRING_OBJECT, false);
+                methodVisitor.visitVarInsn(ALOAD, 0);
+                methodVisitor.visitLdcInsn(property.getName());
+                methodVisitor.visitMethodInsn(INVOKESTATIC, MANAGED_OBJECT_FACTORY_TYPE.getInternalName(), "attachOwner", RETURN_OBJECT_FROM_OBJECT_MODEL_OBJECT_STRING, false);
             }
         }
 
@@ -1064,7 +1080,7 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
         }
 
         @Override
-        public void applyReadOnlyManagedStateToGetter(PropertyMetadata property, Method getter) {
+        public void applyReadOnlyManagedStateToGetter(PropertyMetadata property, Method getter, boolean applyRole) {
             // GENERATE public <type> <getter>() {
             //     if (<field> == null) {
             //         <field> = getFactory().newInstance(this, <display-name>, <type>, <prop-name>);
@@ -1103,8 +1119,23 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
                     methodVisitor.visitMethodInsn(INVOKEVIRTUAL, MANAGED_OBJECT_FACTORY_TYPE.getInternalName(), "newInstance", RETURN_OBJECT_FROM_MODEL_OBJECT_STRING_CLASS, false);
                 }
 
+                if (applyRole) {
+                    applyRoleTo(methodVisitor);
+                }
+
                 methodVisitor.visitTypeInsn(CHECKCAST, propType.getInternalName());
             });
+        }
+
+        // Caller should place property value on the top of the stack, leaves the property value on the top of the stack
+        private void applyRoleTo(MethodVisitor methodVisitor) {
+            // GENERATE getFactory().applyRole(<value>)
+            methodVisitor.visitInsn(DUP);
+            // GENERATE factory = getFactory()
+            methodVisitor.visitVarInsn(ALOAD, 0);
+            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, generatedType.getInternalName(), FACTORY_METHOD, RETURN_MANAGED_OBJECT_FACTORY, false);
+            methodVisitor.visitInsn(SWAP);
+            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, MANAGED_OBJECT_FACTORY_TYPE.getInternalName(), "applyRole", RETURN_VOID_FROM_OBJECT, false);
         }
 
         @Override
@@ -1308,7 +1339,7 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
         }
 
         @Override
-        public void applyConventionMappingToGetter(PropertyMetadata property, MethodMetadata getter, boolean attachOwner) {
+        public void applyConventionMappingToGetter(PropertyMetadata property, MethodMetadata getter, boolean attachOwner, boolean applyRole) {
             if (!conventionAware && !attachOwner) {
                 return;
             }
@@ -1362,13 +1393,14 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
             }
 
             if (attachOwner) {
-                // GENERATE ManagedObjectFactory.attachOwner(this, <value>, <property-name>)
-                methodVisitor.visitVarInsn(ASTORE, 1);
+                // GENERATE ManagedObjectFactory.attachOwner(<value>, this, <property-name>)
                 methodVisitor.visitVarInsn(ALOAD, 0);
                 methodVisitor.visitLdcInsn(property.getName());
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitMethodInsn(INVOKESTATIC, MANAGED_OBJECT_FACTORY_TYPE.getInternalName(), "attachOwner", RETURN_OBJECT_FROM_MODEL_OBJECT_STRING_OBJECT, false);
-                methodVisitor.visitVarInsn(ALOAD, 1);
+                methodVisitor.visitMethodInsn(INVOKESTATIC, MANAGED_OBJECT_FACTORY_TYPE.getInternalName(), "attachOwner", RETURN_OBJECT_FROM_OBJECT_MODEL_OBJECT_STRING, false);
+                if (applyRole) {
+                    // GENERATE ManagedObjectFactory.applyRole(<value>)
+                    applyRoleTo(methodVisitor);
+                }
             }
 
             methodVisitor.visitInsn(returnType.getOpcode(IRETURN));
@@ -1776,11 +1808,13 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
         final ServiceLookup services;
         @Nullable
         final Describable displayName;
+        PropertyRoleAnnotationHandler roleHandler;
 
-        ObjectCreationDetails(InstanceGenerator instantiator, ServiceLookup services, @Nullable Describable displayName) {
+        ObjectCreationDetails(InstanceGenerator instantiator, ServiceLookup services, @Nullable Describable displayName, PropertyRoleAnnotationHandler roleHandler) {
             this.instantiator = instantiator;
             this.services = services;
             this.displayName = displayName;
+            this.roleHandler = roleHandler;
         }
     }
 
@@ -1844,7 +1878,7 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
         }
 
         @Override
-        public void applyReadOnlyManagedStateToGetter(PropertyMetadata property, Method getter) {
+        public void applyReadOnlyManagedStateToGetter(PropertyMetadata property, Method getter, boolean applyRole) {
         }
 
         @Override
@@ -1864,7 +1898,7 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
         }
 
         @Override
-        public void applyConventionMappingToGetter(PropertyMetadata property, MethodMetadata getter, boolean attachOwner) {
+        public void applyConventionMappingToGetter(PropertyMetadata property, MethodMetadata getter, boolean attachOwner, boolean applyRole) {
         }
 
         @Override
@@ -1895,15 +1929,17 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
 
     private static class InvokeConstructorStrategy implements InstantiationStrategy {
         private final Constructor<?> constructor;
+        private final PropertyRoleAnnotationHandler roleHandler;
 
-        public InvokeConstructorStrategy(Constructor<?> constructor) {
+        public InvokeConstructorStrategy(Constructor<?> constructor, PropertyRoleAnnotationHandler roleHandler) {
             this.constructor = constructor;
+            this.roleHandler = roleHandler;
         }
 
         @Override
         public Object newInstance(ServiceLookup services, InstanceGenerator nested, @Nullable Describable displayName, Object[] params) throws InvocationTargetException, IllegalAccessException, InstantiationException {
             ObjectCreationDetails previous = SERVICES_FOR_NEXT_OBJECT.get();
-            SERVICES_FOR_NEXT_OBJECT.set(new ObjectCreationDetails(nested, services, displayName));
+            SERVICES_FOR_NEXT_OBJECT.set(new ObjectCreationDetails(nested, services, displayName, roleHandler));
             try {
                 return constructor.newInstance(params);
             } finally {
@@ -1913,18 +1949,20 @@ public class AsmBackedClassGenerator extends AbstractClassGenerator {
     }
 
     private static class InvokeSerializationConstructorAndInitializeFieldsStrategy implements InstantiationStrategy {
+        private final PropertyRoleAnnotationHandler roleHandler;
         private final Constructor<?> constructor;
         private final Method initMethod;
 
-        public InvokeSerializationConstructorAndInitializeFieldsStrategy(Constructor<?> constructor, Method initMethod) {
+        public InvokeSerializationConstructorAndInitializeFieldsStrategy(Constructor<?> constructor, Method initMethod, PropertyRoleAnnotationHandler roleHandler) {
             this.constructor = constructor;
             this.initMethod = initMethod;
+            this.roleHandler = roleHandler;
         }
 
         @Override
         public Object newInstance(ServiceLookup services, InstanceGenerator nested, @Nullable Describable displayName, Object[] params) throws InvocationTargetException, IllegalAccessException, InstantiationException {
             ObjectCreationDetails previous = SERVICES_FOR_NEXT_OBJECT.get();
-            SERVICES_FOR_NEXT_OBJECT.set(new ObjectCreationDetails(nested, services, null));
+            SERVICES_FOR_NEXT_OBJECT.set(new ObjectCreationDetails(nested, services, displayName, roleHandler));
             try {
                 Object instance = constructor.newInstance();
                 initMethod.invoke(instance);

@@ -54,6 +54,7 @@ import org.gradle.internal.extensibility.NoConventionMapping;
 import org.gradle.internal.instantiation.ClassGenerationException;
 import org.gradle.internal.instantiation.InjectAnnotationHandler;
 import org.gradle.internal.instantiation.InstanceGenerator;
+import org.gradle.internal.instantiation.PropertyRoleAnnotationHandler;
 import org.gradle.internal.logging.text.TreeFormatter;
 import org.gradle.internal.reflect.ClassDetails;
 import org.gradle.internal.reflect.ClassInspector;
@@ -116,8 +117,12 @@ abstract class AbstractClassGenerator implements ClassGenerator {
     private final ImmutableSet<Class<? extends Annotation>> enabledAnnotations;
     private final ImmutableMultimap<Class<? extends Annotation>, TypeToken<?>> allowedTypesForAnnotation;
     private final Transformer<GeneratedClassImpl, Class<?>> generator = type -> generateUnderLock(type);
+    private final PropertyRoleAnnotationHandler roleHandler;
 
-    protected AbstractClassGenerator(Collection<? extends InjectAnnotationHandler> allKnownAnnotations, Collection<Class<? extends Annotation>> enabledAnnotations, CrossBuildInMemoryCache<Class<?>, GeneratedClassImpl> generatedClassesCache) {
+    protected AbstractClassGenerator(Collection<? extends InjectAnnotationHandler> allKnownAnnotations,
+                                     Collection<Class<? extends Annotation>> enabledAnnotations,
+                                     PropertyRoleAnnotationHandler roleHandler,
+                                     CrossBuildInMemoryCache<Class<?>, GeneratedClassImpl> generatedClassesCache) {
         this.generatedClasses = generatedClassesCache;
         this.enabledAnnotations = ImmutableSet.copyOf(enabledAnnotations);
         ImmutableSet.Builder<Class<? extends Annotation>> builder = ImmutableSet.builder();
@@ -140,6 +145,11 @@ abstract class AbstractClassGenerator implements ClassGenerator {
         }
         this.disabledAnnotations = builder.build();
         this.allowedTypesForAnnotation = allowedTypesBuilder.build();
+        this.roleHandler = roleHandler;
+    }
+
+    PropertyRoleAnnotationHandler getRoleHandler() {
+        return roleHandler;
     }
 
     private <T> TypeToken<Provider<T>> providerOf(Class<T> providerType) {
@@ -377,6 +387,15 @@ abstract class AbstractClassGenerator implements ClassGenerator {
 
     private static boolean isManagedType(MethodMetadata method) {
         return MANAGED_PROPERTY_TYPES.contains(method.getReturnType()) || method.method.getAnnotation(Nested.class) != null;
+    }
+
+    private boolean isRoleType(MethodMetadata method) {
+        for (Class<? extends Annotation> roleAnnotation : roleHandler.getAnnotationTypes()) {
+            if (method.method.getAnnotation(roleAnnotation) != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     protected class GeneratedClassImpl implements GeneratedClass<Object> {
@@ -833,7 +852,7 @@ abstract class AbstractClassGenerator implements ClassGenerator {
         }
     }
 
-    private static class ExtensibleTypePropertyHandler extends ClassGenerationHandler implements UnclaimedPropertyHandler {
+    private class ExtensibleTypePropertyHandler extends ClassGenerationHandler implements UnclaimedPropertyHandler {
         private Class<?> type;
         private Class<?> noMappingClass;
         private boolean conventionAware;
@@ -909,7 +928,8 @@ abstract class AbstractClassGenerator implements ClassGenerator {
                 boolean managedProperty = isManagedProperty(property);
                 for (MethodMetadata getter : property.getOverridableGetters()) {
                     boolean attachOwner = managedProperty && isManagedType(getter);
-                    visitor.applyConventionMappingToGetter(property, getter, attachOwner);
+                    boolean applyRole = attachOwner && isRoleType(getter);
+                    visitor.applyConventionMappingToGetter(property, getter, attachOwner, applyRole);
                 }
                 for (Method setter : property.getOverridableSetters()) {
                     visitor.applyConventionMappingToSetter(property, setter);
@@ -918,7 +938,7 @@ abstract class AbstractClassGenerator implements ClassGenerator {
         }
     }
 
-    private static class ManagedPropertiesHandler extends ClassGenerationHandler {
+    private class ManagedPropertiesHandler extends ClassGenerationHandler {
         private final List<PropertyMetadata> mutableProperties = new ArrayList<>();
         private final List<PropertyMetadata> readOnlyProperties = new ArrayList<>();
         private final List<PropertyMetadata> eagerAttachProperties = new ArrayList<>();
@@ -994,7 +1014,7 @@ abstract class AbstractClassGenerator implements ClassGenerator {
             for (PropertyMetadata property : readOnlyProperties) {
                 visitor.applyManagedStateToProperty(property);
                 for (MethodMetadata getter : property.getters) {
-                    visitor.applyReadOnlyManagedStateToGetter(property, getter.method);
+                    visitor.applyReadOnlyManagedStateToGetter(property, getter.method, isRoleType(getter));
                 }
             }
             if (!hasFields) {
@@ -1314,13 +1334,13 @@ abstract class AbstractClassGenerator implements ClassGenerator {
 
         void applyManagedStateToSetter(PropertyMetadata property, Method setter);
 
-        void applyReadOnlyManagedStateToGetter(PropertyMetadata property, Method getter);
+        void applyReadOnlyManagedStateToGetter(PropertyMetadata property, Method getter, boolean applyRole);
 
         void addManagedMethods(Iterable<PropertyMetadata> mutableProperties, Iterable<PropertyMetadata> readOnlyProperties);
 
         void applyConventionMappingToProperty(PropertyMetadata property);
 
-        void applyConventionMappingToGetter(PropertyMetadata property, MethodMetadata getter, boolean attachOwner);
+        void applyConventionMappingToGetter(PropertyMetadata property, MethodMetadata getter, boolean attachOwner, boolean applyRole);
 
         void applyConventionMappingToSetter(PropertyMetadata property, Method setter);
 
