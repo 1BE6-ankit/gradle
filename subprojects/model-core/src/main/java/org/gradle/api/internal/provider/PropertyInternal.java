@@ -17,6 +17,7 @@
 package org.gradle.api.internal.provider;
 
 import org.gradle.api.Task;
+import org.gradle.internal.state.ModelObject;
 import org.gradle.internal.state.OwnerAware;
 
 public interface PropertyInternal<T> extends ProviderInternal<T>, HasConfigurableValueInternal, OwnerAware {
@@ -29,4 +30,6 @@ public interface PropertyInternal<T> extends ProviderInternal<T>, HasConfigurabl
      * Associates this property with the task that produces its value.
      */
     void attachProducer(Task producer);
+
+    void attachProducer(ModelObject owner);
 }

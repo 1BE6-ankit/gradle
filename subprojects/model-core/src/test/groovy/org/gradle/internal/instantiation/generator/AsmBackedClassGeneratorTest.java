@@ -54,6 +54,7 @@ import org.gradle.internal.extensibility.ExtensibleDynamicObject;
 import org.gradle.internal.extensibility.NoConventionMapping;
 import org.gradle.internal.instantiation.ClassGenerationException;
 import org.gradle.internal.instantiation.InstantiatorFactory;
+import org.gradle.internal.instantiation.PropertyRoleAnnotationHandler;
 import org.gradle.internal.metaobject.BeanDynamicObject;
 import org.gradle.internal.metaobject.DynamicObject;
 import org.gradle.internal.reflect.JavaReflectionUtil;
@@ -69,6 +70,7 @@ import spock.lang.Issue;
 
 import javax.inject.Inject;
 import java.io.IOException;
+import java.lang.annotation.Annotation;
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -109,7 +111,17 @@ import static org.junit.Assert.fail;
 public class AsmBackedClassGeneratorTest {
     @Rule
     public TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider(getClass());
-    final ClassGenerator generator = AsmBackedClassGenerator.decorateAndInject(Collections.emptyList(), Collections.emptyList(), new TestCrossBuildInMemoryCacheFactory(), 0);
+    final PropertyRoleAnnotationHandler roleHandler = new PropertyRoleAnnotationHandler() {
+        @Override
+        public Set<Class<? extends Annotation>> getAnnotationTypes() {
+            return Collections.emptySet();
+        }
+
+        @Override
+        public void applyRoleTo(ModelObject owner, Object target) {
+        }
+    };
+    final ClassGenerator generator = AsmBackedClassGenerator.decorateAndInject(Collections.emptyList(), roleHandler, Collections.emptyList(), new TestCrossBuildInMemoryCacheFactory(), 0);
 
     private <T> T newInstance(Class<T> clazz, Object... args) throws Exception {
         DefaultServiceRegistry services = new DefaultServiceRegistry();

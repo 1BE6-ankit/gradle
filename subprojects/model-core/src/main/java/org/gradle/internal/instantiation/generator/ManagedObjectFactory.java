@@ -59,8 +59,8 @@ public class ManagedObjectFactory {
     }
 
     // Called from generated code
-    public void applyRole(Object value) {
-        roleHandler.applyRoleTo(value);
+    public void applyRole(Object value, ModelObject owner) {
+        roleHandler.applyRoleTo(owner, value);
     }
 
     // Called from generated code

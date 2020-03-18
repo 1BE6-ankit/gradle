@@ -17,7 +17,9 @@
 package org.gradle.api.internal.tasks.properties.annotations;
 
 import com.google.common.collect.ImmutableSet;
+import org.gradle.api.internal.provider.PropertyInternal;
 import org.gradle.internal.instantiation.PropertyRoleAnnotationHandler;
+import org.gradle.internal.state.ModelObject;
 
 import java.lang.annotation.Annotation;
 import java.util.List;
@@ -40,7 +42,9 @@ public class OutputPropertyRoleAnnotationHandler implements PropertyRoleAnnotati
     }
 
     @Override
-    public void applyRoleTo(Object target) {
-        System.out.println("* apply role to target " + target);
+    public void applyRoleTo(ModelObject owner, Object target) {
+        if (target instanceof PropertyInternal) {
+            ((PropertyInternal<?>) target).attachProducer(owner);
+        }
     }
 }

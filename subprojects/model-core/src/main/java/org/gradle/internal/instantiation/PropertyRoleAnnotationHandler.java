@@ -16,6 +16,8 @@
 
 package org.gradle.internal.instantiation;
 
+import org.gradle.internal.state.ModelObject;
+
 import java.lang.annotation.Annotation;
 import java.util.Set;
 
@@ -27,5 +29,5 @@ import java.util.Set;
 public interface PropertyRoleAnnotationHandler {
     Set<Class<? extends Annotation>> getAnnotationTypes();
 
-    void applyRoleTo(Object target);
+    void applyRoleTo(ModelObject owner, Object target);
 }
