@@ -19,6 +19,7 @@ package org.gradle.instantexecution
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.BuildOperationsFixture
 import org.gradle.integtests.fixtures.DefaultTestExecutionResult
+import org.gradle.integtests.fixtures.executer.ExecutionFailure
 import org.gradle.integtests.fixtures.instantexecution.InstantExecutionBuildOperationsFixture
 import org.gradle.internal.logging.ConsoleRenderer
 import org.gradle.test.fixtures.file.TestFile
@@ -30,10 +31,13 @@ import javax.script.ScriptEngineManager
 import java.nio.file.Paths
 import java.util.regex.Pattern
 
+import static org.gradle.util.Matchers.matchesRegexp
+import static org.hamcrest.CoreMatchers.containsString
 import static org.hamcrest.CoreMatchers.equalTo
 import static org.hamcrest.CoreMatchers.not
 import static org.hamcrest.CoreMatchers.notNullValue
 import static org.hamcrest.CoreMatchers.nullValue
+import static org.hamcrest.CoreMatchers.startsWith
 import static org.junit.Assert.assertThat
 import static org.junit.Assert.assertTrue
 
@@ -51,7 +55,8 @@ class AbstractInstantExecutionIntegrationTest extends AbstractIntegrationSpec {
         fails(INSTANT_EXECUTION_PROPERTY, *args)
     }
 
-    public static final String INSTANT_EXECUTION_PROPERTY = "-Dorg.gradle.unsafe.instant-execution=true"
+    public static final String INSTANT_EXECUTION_PROPERTY = "-D${SystemProperties.isEnabled}=true"
+    public static final String PROBLEMS_REPORT_HTML_FILE_NAME = "instant-execution-report.html"
 
     protected InstantExecutionBuildOperationsFixture newInstantExecutionFixture() {
         return new InstantExecutionBuildOperationsFixture(new BuildOperationsFixture(executer, temporaryFolder))
@@ -65,8 +70,53 @@ class AbstractInstantExecutionIntegrationTest extends AbstractIntegrationSpec {
         executer.withArgument("-D${SystemProperties.failOnProblems}=true")
     }
 
+    // TODO move to InstantExecutionFixture
+
+    protected void expectInstantExecutionFailure(
+        Class<? extends InstantExecutionException> exceptionType,
+        int totalProblemsCount = uniqueProblems.length,
+        String... uniqueProblems
+    ) {
+        if (uniqueProblems.length == 0) {
+            throw new IllegalArgumentException("Use TODO() when no instant execution failure is to be expected")
+        }
+        if (totalProblemsCount < uniqueProblems.length) {
+            throw new IllegalArgumentException("`totalProblemsCount` can't be lesser than `uniqueProblems.length`")
+        }
+
+        def exceptionMessagePrefix = exceptionType.getField("MESSAGE").get(null).toString()
+        def summaryHeader = problemsSummaryHeaderFor(totalProblemsCount, uniqueProblems.length)
+
+        // Assert build failure
+        failure.assertThatDescription(startsWith(exceptionMessagePrefix))
+        failure.assertThatDescription(containsString(summaryHeader))
+        failure.assertThatDescription(matchesRegexp(".*See the complete report at file:.*${PROBLEMS_REPORT_HTML_FILE_NAME}.*"))
+        uniqueProblems.each { problem ->
+            failure.assertHasCause(problem)
+        }
+        // TODO assert problems are deduplicated in failure causes
+        verifyInstantExecutionProblems(executer.workingDir, totalProblemsCount, uniqueProblems as List)
+
+        // Assert stacktrace
+        assertThat(failure.error, containsNormalizedString(
+            "* Exception is:\n${exceptionType.name}: $exceptionMessagePrefix\n$summaryHeader\nSee the complete report at"
+        ))
+        def subExceptionType = exceptionType == InstantExecutionErrorsException
+            ? InstantExecutionErrorException
+            : InstantExecutionProblemException
+        if (totalProblemsCount == 1) {
+            assertThat(failure.error, containsString("Caused by: ${subExceptionType.name}: ${uniqueProblems.first()}"))
+        } else {
+            (1..totalProblemsCount).each { problemNumber ->
+                assertThat(failure.error, containsString("Cause $problemNumber: ${subExceptionType.name}:"))
+            }
+        }
+
+        // Assert HTML report
+    }
+
     protected void expectNoInstantExecutionProblem() {
-        verifyDeprecationWarnings(executer.workingDir, 0, [])
+        verifyInstantExecutionProblems(executer.workingDir, 0, [])
     }
 
     protected void expectInstantExecutionProblems(
@@ -74,36 +124,53 @@ class AbstractInstantExecutionIntegrationTest extends AbstractIntegrationSpec {
         String... problems
     ) {
         if (problems.length == 0) {
-            throw new IllegalArgumentException("Use expectNoInstantExecutionProblem() when no deprecation warnings are to be expected")
+            throw new IllegalArgumentException("Use expectNoInstantExecutionProblem() when no instant execution problems are to be expected")
         }
-        verifyDeprecationWarnings(executer.workingDir, count, problems as List)
+        verifyInstantExecutionProblems(executer.workingDir, count, problems as List)
     }
 
-    private void verifyDeprecationWarnings(
+    private void verifyInstantExecutionProblems(
         File rootDir = executer.workingDir,
         int totalProblemsCount,
         List<String> uniqueProblems
     ) {
-        assertProblemsConsoleSummaryHeaderFor(totalProblemsCount, uniqueProblems.size())
-        assertProblemsConsoleReport(uniqueProblems)
-        assertProblemHtmlReport(totalProblemsCount, uniqueProblems)
+        if (result instanceof ExecutionFailure) {
+            assertProblemsFailure(totalProblemsCount, uniqueProblems)
+        } else {
+            assertProblemsConsoleSummary(totalProblemsCount, uniqueProblems)
+        }
+        assertProblemsHtmlReport(totalProblemsCount, uniqueProblems.size())
     }
 
-    private void assertProblemsConsoleSummaryHeaderFor(int totalProblems, int uniqueProblems) {
+    private void assertProblemsFailure(int totalProblemsCount, List<String> uniqueProblems) {
+        assertProblemsSummaryHeaderInOutput(totalProblemsCount, uniqueProblems.size())
+        assertUniqueProblemsInOutput(uniqueProblems)
+    }
+
+    private void assertProblemsConsoleSummary(int totalProblemsCount, List<String> uniqueProblems) {
+        assertProblemsSummaryHeaderInOutput(totalProblemsCount, uniqueProblems.size())
+        assertUniqueProblemsInOutput(uniqueProblems)
+    }
+
+    private void assertProblemsSummaryHeaderInOutput(int totalProblems, int uniqueProblems) {
         if (totalProblems > 0 || uniqueProblems > 0) {
-            def header = "${totalProblems} instant execution problem${totalProblems >= 2 ? 's were' : ' was'} found, " +
-                "${uniqueProblems} of which seem${uniqueProblems >= 2 ? '' : 's'} unique:"
-            assertThat(output, containsNormalizedString(header))
+            def header = problemsSummaryHeaderFor(totalProblems, uniqueProblems)
+            assertThat(relevantOutput(), containsNormalizedString(header))
         } else {
-            assertThat(output, not(containsNormalizedString("instant execution problem")))
+            assertThat(relevantOutput(), not(containsNormalizedString("instant execution problem")))
         }
     }
 
-    private void assertProblemsConsoleReport(List<String> uniqueProblems) {
+    private static String problemsSummaryHeaderFor(int totalProblems, int uniqueProblems) {
+        return "${totalProblems} instant execution problem${totalProblems >= 2 ? 's were' : ' was'} found, " +
+            "${uniqueProblems} of which seem${uniqueProblems >= 2 ? '' : 's'} unique."
+    }
+
+    private void assertUniqueProblemsInOutput(List<String> uniqueProblems) {
         def uniqueProblemsCount = uniqueProblems.size()
-        def problems = uniqueProblems.toList()
+        def problems = uniqueProblems.collect { "> $it".toString() }
         def found = 0
-        def output = resultOrFailureOutput()
+        def output = relevantOutput()
         output.readLines().eachWithIndex { String line, int idx ->
             if (problems.remove(line.trim())) {
                 found++
@@ -113,13 +180,13 @@ class AbstractInstantExecutionIntegrationTest extends AbstractIntegrationSpec {
         assert problems.empty, "Expected ${uniqueProblemsCount} unique problems, found ${found} unique problems, remaining:\n${problems.collect { " - $it" }.join("\n")}"
     }
 
-    private void assertProblemHtmlReport(int totalProblemCount, List<String> uniqueProblems) {
-        def expectReport = totalProblemCount > 0 || uniqueProblems.size() > 0
+    private void assertProblemsHtmlReport(int totalProblemCount, int uniqueProblemCount) {
+        def expectReport = totalProblemCount > 0 || uniqueProblemCount > 0
         def reportDir = resolveInstantExecutionReportDirectory()
         if (expectReport) {
             assertThat("HTML report URI not found", reportDir, notNullValue())
             assertTrue("HTML report directory not found '$reportDir'", reportDir.isDirectory())
-            def htmlFile = reportDir.file('instant-execution-report.html')
+            def htmlFile = reportDir.file(PROBLEMS_REPORT_HTML_FILE_NAME)
             def jsFile = reportDir.file('instant-execution-report-data.js')
             assertTrue("HTML report HTML file not found in '$reportDir'", htmlFile.isFile())
             assertTrue("HTML report JS model not found in '$reportDir'", jsFile.isFile())
@@ -136,16 +203,16 @@ class AbstractInstantExecutionIntegrationTest extends AbstractIntegrationSpec {
     @Nullable
     protected TestFile resolveInstantExecutionReportDirectory() {
         def baseDirUri = clickableUrlFor(new File(executer.workingDir, "build/reports/instant-execution"))
-        def pattern = Pattern.compile("See the complete report at (${baseDirUri}.*)instant-execution-report.html")
-        def reportDirUri = resultOrFailureOutput().readLines().findResult { line ->
+        def pattern = Pattern.compile("See the complete report at (${baseDirUri}.*)$PROBLEMS_REPORT_HTML_FILE_NAME")
+        def reportDirUri = relevantOutput().readLines().findResult { line ->
             def matcher = pattern.matcher(line)
             matcher.matches() ? matcher.group(1) : null
         }
         return reportDirUri ? new TestFile(Paths.get(URI.create(reportDirUri)).toFile().absoluteFile) : null
     }
 
-    private String resultOrFailureOutput() {
-        return result?.output ?: failure?.output ?: ''
+    private String relevantOutput() {
+        return failure ? output + '\n' + errorOutput : output
     }
 
     private static int numberOfProblemsIn(File jsFile) {

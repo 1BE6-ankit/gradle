@@ -16,7 +16,6 @@
 
 package org.gradle.instantexecution.serialization.codecs
 
-import org.gradle.api.GradleException
 import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.internal.GeneratedSubclasses
@@ -66,12 +65,8 @@ class TaskNodeCodec(
 
     override suspend fun WriteContext.encode(value: LocalTaskNode) {
         val task = value.task
-        try {
-            runToCompletionWithMutableStateOf(task.project) {
-                writeTask(task)
-            }
-        } catch (e: Exception) {
-            throw GradleException("Could not save state of $task.", e)
+        runToCompletionWithMutableStateOf(task.project) {
+            writeTask(task)
         }
     }
 

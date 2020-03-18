@@ -22,7 +22,10 @@ import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.api.invocation.Gradle
 import org.gradle.api.logging.Logger
 import org.gradle.instantexecution.DefaultInstantExecution
+import org.gradle.instantexecution.InstantExecutionErrorException
+import org.gradle.instantexecution.InstantExecutionProblemException
 import org.gradle.instantexecution.extensions.uncheckedCast
+import org.gradle.instantexecution.propertyDescriptionFor
 import org.gradle.instantexecution.serialization.beans.BeanStateReader
 import org.gradle.instantexecution.serialization.beans.BeanStateWriter
 import org.gradle.internal.serialize.Decoder
@@ -103,18 +106,43 @@ sealed class PropertyProblem {
     data class Warning(
         override val trace: PropertyTrace,
         override val message: StructuredMessage,
-        override val exception: Throwable? = null
-    ) : PropertyProblem()
+        private val cause: Throwable? = null
+    ) : PropertyProblem() {
+
+        override val exception: Throwable?
+
+        init {
+            // for nicer stack traces
+            exception = InstantExecutionProblemException(
+                // TODO deduplicate message generation
+                propertyDescriptionFor(this) + ": " + message,
+                cause
+            )
+        }
+    }
 
     /**
      * A problem that compromises the execution of the build.
      * Instant execution state should be discarded.
      */
+    // TODO contextual cause
     data class Error(
         override val trace: PropertyTrace,
         override val message: StructuredMessage,
+        private val cause: Throwable
+    ) : PropertyProblem() {
+
         override val exception: Throwable
-    ) : PropertyProblem()
+
+        init {
+            // for nicer stack traces
+            exception = InstantExecutionErrorException(
+                // TODO deduplicate message generation
+                propertyDescriptionFor(this) + ": " + message,
+                cause
+            )
+        }
+    }
 }
 
 

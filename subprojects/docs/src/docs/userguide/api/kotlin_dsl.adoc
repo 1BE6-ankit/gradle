@@ -208,7 +208,7 @@ The Kotlin DSL currently supports type-safe model accessors for any of the follo
 
 [IMPORTANT]
 ====
-Only the main project build scripts and precompiled project script plugins have type-safe model accessors.
+Only the main project build scripts and <<kotdsl:precompiled_plugins,precompiled project script plugins>> have type-safe model accessors.
 Initialization scripts, settings scripts, script plugins do not.
 These limitations will be removed in a future Gradle release.
 ====

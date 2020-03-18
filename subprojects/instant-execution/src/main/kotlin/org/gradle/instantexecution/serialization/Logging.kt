@@ -41,7 +41,7 @@ fun unknownPropertyError(message: String, e: Throwable): PropertyProblem =
     }
 
 
-internal
+private
 fun propertyError(error: Throwable, trace: PropertyTrace, message: StructuredMessageBuilder) =
     PropertyProblem.Error(trace, build(message), error)
 
