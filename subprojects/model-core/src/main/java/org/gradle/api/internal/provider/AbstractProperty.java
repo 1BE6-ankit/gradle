@@ -89,7 +89,10 @@ public abstract class AbstractProperty<T, S extends ValueSupplier> extends Abstr
 
     @Override
     public void attachProducer(ModelObject owner) {
-        System.out.println(String.format("-> attach producer to %s from %s (%s)", this, owner.getIdentityDisplayName(), owner));
+        Task producer = owner.getTaskThatOwnsThisObject();
+        if (producer != null) {
+            attachProducer(producer);
+        }
     }
 
     @Override

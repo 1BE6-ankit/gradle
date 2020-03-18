@@ -109,8 +109,8 @@ public class ManagedObjectFactory {
     }
 
     private static ManagedPropertyName displayNameFor(ModelObject owner, String propertyName) {
-        if (owner.getIdentityDisplayName() instanceof ManagedPropertyName) {
-            ManagedPropertyName root = (ManagedPropertyName) owner.getIdentityDisplayName();
+        if (owner.getModelIdentityDisplayName() instanceof ManagedPropertyName) {
+            ManagedPropertyName root = (ManagedPropertyName) owner.getModelIdentityDisplayName();
             return new ManagedPropertyName(root.owner, root.propertyName + "." + propertyName);
         } else {
             return new ManagedPropertyName(owner, propertyName);
@@ -142,7 +142,7 @@ public class ManagedObjectFactory {
 
         @Override
         public String getDisplayName() {
-            Describable ownerDisplayName = owner.getIdentityDisplayName();
+            Describable ownerDisplayName = owner.getModelIdentityDisplayName();
             if (ownerDisplayName != null) {
                 return ownerDisplayName.getDisplayName() + " property '" + propertyName + "'";
             } else {

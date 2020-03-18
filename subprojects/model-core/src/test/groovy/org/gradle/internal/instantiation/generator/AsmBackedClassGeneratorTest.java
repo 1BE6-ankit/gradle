@@ -174,7 +174,7 @@ public class AsmBackedClassGeneratorTest {
     public void mixesInModelObjectInterfaces() throws Exception {
         Bean bean = newInstance(Bean.class);
         assertTrue(bean instanceof ModelObject);
-        assertNull(((ModelObject) bean).getIdentityDisplayName());
+        assertNull(((ModelObject) bean).getModelIdentityDisplayName());
         assertTrue(bean instanceof OwnerAware);
     }
 
@@ -182,7 +182,7 @@ public class AsmBackedClassGeneratorTest {
     public void mixesInModelObjectInterfacesToInterface() throws Exception {
         InterfaceWithDefaultMethods bean = newInstance(InterfaceWithDefaultMethods.class);
         assertTrue(bean instanceof ModelObject);
-        assertNull(((ModelObject) bean).getIdentityDisplayName());
+        assertNull(((ModelObject) bean).getModelIdentityDisplayName());
         assertTrue(bean instanceof OwnerAware);
     }
 

@@ -996,7 +996,7 @@ abstract class AbstractClassGenerator implements ClassGenerator {
                 visitor.instantiatesNestedObjects();
             }
             for (PropertyMetadata property : eagerAttachProperties) {
-                visitor.attachDuringConstruction(property);
+                visitor.attachDuringConstruction(property, isRoleType(property.getMainGetter()));
             }
         }
 
@@ -1294,7 +1294,7 @@ abstract class AbstractClassGenerator implements ClassGenerator {
 
         void instantiatesNestedObjects();
 
-        void attachDuringConstruction(PropertyMetadata property);
+        void attachDuringConstruction(PropertyMetadata property, boolean applyRole);
 
         ClassGenerationVisitor builder();
     }
